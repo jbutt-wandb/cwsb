@@ -67,13 +67,13 @@ def get_sandbox(proj: Project, state: dict, required: bool = True):
     sid = state.get("sandbox_id")
     if not sid:
         if required:
-            sys.exit("No active sandbox for this project. Run `sb marimo edit` first.")
+            sys.exit("No active sandbox for this project. Run `cwsb marimo edit` first.")
         return None
     try:
         return unwrap(Sandbox.from_id(sid, auth=auth(proj)))
     except Exception as e:
         if required:
-            sys.exit(f"Could not reach sandbox {sid}: {e}\n(If it's gone: `sb cleanup`, then `sb marimo edit`.)")
+            sys.exit(f"Could not reach sandbox {sid}: {e}\n(If it's gone: `cwsb cleanup`, then `cwsb marimo edit`.)")
         return None
 
 
@@ -288,7 +288,7 @@ def tokenized_url(state: dict, file: str | None = None) -> str:
 def print_access(state: dict, file: str | None = None) -> None:
     if not state.get("url"):
         print(f"\n  sandbox {state.get('sandbox_id')} exists but no URL was saved "
-              "(a previous create likely crashed — `sb cleanup`, then retry)\n")
+              "(a previous create likely crashed — `cwsb cleanup`, then retry)\n")
         return
     print(f"\n  marimo:  {tokenized_url(state, file)}")
     print(f"  (token: {state.get('token')})\n")
@@ -361,8 +361,8 @@ def create_sandbox(proj: Project, lifetime_str: str, gpu: bool, fresh: bool, sta
         print(f"  pushed notebooks: {', '.join(pushed) or '(none)'}")
     except Exception:
         print("\n--- bootstrap failed; sandbox left RUNNING for debugging ---")
-        print("    inspect: sb exec -- tail -n 100 /tmp/bootstrap.log")
-        print("    reap:    sb cleanup")
+        print("    inspect: cwsb exec -- tail -n 100 /tmp/bootstrap.log")
+        print("    reap:    cwsb cleanup")
         raise
     return sb
 
@@ -390,7 +390,7 @@ def ensure_up(proj: Project, lifetime: str | None, gpu: bool | None, fresh: bool
         created = True
     else:
         if fresh:
-            sys.exit("--fresh requires no running sandbox — `sb down` (or `sb cleanup`) first.")
+            sys.exit("--fresh requires no running sandbox — `cwsb down` (or `cwsb cleanup`) first.")
         push_notebooks(sb, proj)
 
     mode_changed = state.get("server_mode") != mode or (mode == "run" and state.get("app_file") != app_file)
@@ -402,7 +402,7 @@ def ensure_up(proj: Project, lifetime: str | None, gpu: bool | None, fresh: bool
         except Exception:
             if created:
                 print("\n--- marimo launch failed; sandbox left RUNNING for debugging ---")
-                print("    inspect: sb exec -- tail -n 100 /tmp/marimo.log")
+                print("    inspect: cwsb exec -- tail -n 100 /tmp/marimo.log")
             raise
         state["server_mode"] = mode
         state["app_file"] = app_file

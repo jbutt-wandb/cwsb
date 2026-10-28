@@ -1,4 +1,4 @@
-"""Project discovery, [tool.sb] config, state file, .env loading."""
+"""Project discovery, [tool.cwsb] config, state file, .env loading."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def find_root(start: Path | None = None) -> Path:
             return d
     sys.exit(
         "No pyproject.toml found here or above.\n"
-        "Run `sb init` to scaffold a sandbox-ready project in this directory,\n"
+        "Run `cwsb init` to scaffold a sandbox-ready project in this directory,\n"
         "or cd into an existing project (or pass --project <dir>)."
     )
 
@@ -86,11 +86,11 @@ def load_project(root_override: str | None = None) -> Project:
     cfg = dict(DEFAULTS)
     try:
         data = tomllib.loads((root / "pyproject.toml").read_text())
-        cfg.update(data.get("tool", {}).get("sb", {}))
+        cfg.update(data.get("tool", {}).get("cwsb", {}))
     except tomllib.TOMLDecodeError as e:
         sys.exit(f"{root / 'pyproject.toml'} is not valid TOML: {e}")
     user = _slug(getpass.getuser())
-    tag = cfg.get("tag") or f"sb-marimo-{_slug(root.name)}-{user}"
+    tag = cfg.get("tag") or f"cwsb-marimo-{_slug(root.name)}-{user}"
     return Project(
         root=root,
         tag=tag,

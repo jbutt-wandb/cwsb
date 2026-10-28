@@ -1,4 +1,4 @@
-"""`sb init` — scaffold a sandbox-ready marimo project."""
+"""`cwsb init` — scaffold a sandbox-ready marimo project."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from .project import uv_env
 # apply when the package enters the dependency tree.
 _SOURCES_BLOCK = """\
 [tool.uv.sources]
-# Any torch-family lib (torchaudio, xformers, torchao, ...) you `sb uv add`
+# Any torch-family lib (torchaudio, xformers, torchao, ...) you `cwsb uv add`
 # later should be pinned here FIRST, or uv will resolve PyPI's CUDA-13 build.
 # NB: cu128-index versions can lag PyPI numbering (e.g. torchcodec is 0.11.x
 # there, matched to torch 2.11) — loosen version floors accordingly.
@@ -70,11 +70,11 @@ def _(mo):
         This notebook runs **inside a CoreWeave GPU sandbox** — your browser is
         local, the kernel is not.
 
-        - **Libraries**: `sb uv add <pkg>` from your terminal (git-tracked, synced
+        - **Libraries**: `cwsb uv add <pkg>` from your terminal (git-tracked, synced
           in seconds). marimo's install banner is ephemeral until promoted.
-        - **Files**: `sb files add <path>` → `/work/data/`; notebooks sync with
-          `sb pull` / `sb push` (auto-pull on `sb down`).
-        - **Done**: `sb down` — snapshots everything, stops billing.
+        - **Files**: `cwsb files add <path>` → `/work/data/`; notebooks sync with
+          `cwsb pull` / `cwsb push` (auto-pull on `cwsb down`).
+        - **Done**: `cwsb down` — snapshots everything, stops billing.
         """
     )
     return
@@ -120,8 +120,8 @@ def _(mo):
         """
         # Hello sandbox 👋
 
-        This notebook runs inside a CoreWeave sandbox (CPU). Use `sb uv add` for
-        libraries, `sb files add` for data, `sb down` when done.
+        This notebook runs inside a CoreWeave sandbox (CPU). Use `cwsb uv add` for
+        libraries, `cwsb files add` for data, `cwsb down` when done.
         """
     )
     return
@@ -144,20 +144,20 @@ def _pyproject(name: str, deps: list[str], gpu: bool, include_sources: bool) -> 
 [project]
 name = "{name}"
 version = "0.1.0"
-description = "marimo notebooks on CoreWeave Sandboxes (managed by `sb`)"
+description = "marimo notebooks on CoreWeave Sandboxes (managed by `cwsb`)"
 requires-python = ">=3.12"
 dependencies = [
 {dep_lines}
 ]
 
-# This project is never installed locally — it defines the env that `sb`
+# This project is never installed locally — it defines the env that `cwsb`
 # syncs into the sandbox at /work/venv (x86_64 Linux).
 [tool.uv]
 package = false
 environments = ["sys_platform == 'linux'"]
 
-[tool.sb]
-{gpu_line}# tag = "..."            # sandbox tag (default: sb-marimo-<dir>-<user>)
+[tool.cwsb]
+{gpu_line}# tag = "..."            # sandbox tag (default: cwsb-marimo-<dir>-<user>)
 # lifetime = "8h"        # hard cap per session
 # apt_packages = []      # extra apt installs at bootstrap (ffmpeg is built in)
 {sources}"""
@@ -169,12 +169,12 @@ def cmd_init(args) -> None:
     if py.exists():
         sys.exit(
             "pyproject.toml already exists — not scaffolding over it.\n"
-            "To adopt this project for sb instead:\n"
-            "  1. add a `[tool.sb]` section (optional; defaults are fine)\n"
+            "To adopt this project for cwsb instead:\n"
+            "  1. add a `[tool.cwsb]` section (optional; defaults are fine)\n"
             "  2. if you use torch: pin the torch family to the pytorch-cu128\n"
-            "     index in [tool.uv.sources] (run `sb init` in an empty dir to\n"
+            "     index in [tool.uv.sources] (run `cwsb init` in an empty dir to\n"
             "     see the exact block)\n"
-            "  3. `uv lock`, then `sb marimo edit`"
+            "  3. `uv lock`, then `cwsb marimo edit`"
         )
 
     cpu = bool(args.cpu)
@@ -205,4 +205,4 @@ def cmd_init(args) -> None:
     r = subprocess.run(["uv", "lock"], cwd=root, env=uv_env())
     if r.returncode != 0:
         sys.exit("uv lock failed — fix pyproject.toml and run `uv lock` again.")
-    print("done. Next: `sb marimo edit`  (first boot downloads the stack; later boots restore a snapshot)")
+    print("done. Next: `cwsb marimo edit`  (first boot downloads the stack; later boots restore a snapshot)")

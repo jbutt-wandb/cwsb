@@ -1,17 +1,17 @@
-"""sb — marimo-native GPU notebooks on CoreWeave Sandboxes.
+"""cwsb — CoreWeave Sandbox marimo notebooks: GPU kernels, local browser.
 
-  sb init [--vision] [--cpu]          scaffold a sandbox-ready project here
-  sb marimo edit [nb.py] [--gpu|--cpu] [--lifetime 8h] [--fresh] [--no-browser]
-  sb marimo new [nb.py]               new notebook, opened in the browser
-  sb marimo run <nb.py> [--public]    serve a notebook as a read-only app
-  sb marimo restart                   fresh kernels, same URL
-  sb uv add|remove|sync [...]         manage libraries (git-tracked, live in seconds)
-  sb files add <path...> [--to dir]   upload files (default /work/data/)
-  sb files get <remote...> [--to dir] download files
-  sb push | sb pull                   sync notebooks/ <-> sandbox
-  sb status | sb down | sb cleanup | sb exec -- <cmd>
+  cwsb init [--vision] [--cpu]          scaffold a sandbox-ready project here
+  cwsb marimo edit [nb.py] [--gpu|--cpu] [--lifetime 8h] [--fresh] [--no-browser]
+  cwsb marimo new [nb.py]               new notebook, opened in the browser
+  cwsb marimo run <nb.py> [--public]    serve a notebook as a read-only app
+  cwsb marimo restart                   fresh kernels, same URL
+  cwsb uv add|remove|sync [...]         manage libraries (git-tracked, live in seconds)
+  cwsb files add <path...> [--to dir]   upload files (default /work/data/)
+  cwsb files get <remote...> [--to dir] download files
+  cwsb push | cwsb pull                   sync notebooks/ <-> sandbox
+  cwsb status | cwsb down | cwsb cleanup | cwsb exec -- <cmd>
 
-The sandbox is an implementation detail: `sb marimo edit` creates/reuses/heals
+The sandbox is an implementation detail: `cwsb marimo edit` creates/reuses/heals
 it as needed. State and config are per-project (nearest pyproject.toml, like uv);
 CWSANDBOX_API_KEY auto-loads from <project>/.env.
 """
@@ -84,7 +84,7 @@ def cmd_marimo_edit(args) -> None:
     _open(state, nb, args.no_browser)
     secs = state.get("lifetime_seconds")
     cap = f"{secs / 3600:g}h" if secs else args.lifetime or proj.lifetime
-    print(f"  lifetime cap {cap} from creation — `sb down` to save + stop billing")
+    print(f"  lifetime cap {cap} from creation — `cwsb down` to save + stop billing")
 
 
 def cmd_marimo_new(args) -> None:
@@ -110,7 +110,7 @@ def cmd_marimo_run(args) -> None:
                                  app_file=nb, public=args.public)
     url = state["url"] if args.public else remote.tokenized_url(state)
     print(f"\n  app ({'PUBLIC' if args.public else 'token-protected'}): {url}\n")
-    print("  note: edit and run share one port — `sb marimo edit` switches back.")
+    print("  note: edit and run share one port — `cwsb marimo edit` switches back.")
     if not args.no_browser:
         webbrowser.open(url)
 
@@ -142,7 +142,7 @@ def cmd_uv(args) -> None:
     state = proj.load_state()
     sb = remote.get_sandbox(proj, state, required=False)
     if sb is None or not remote.sandbox_alive(sb):
-        print("no running sandbox — lockfile updated; it syncs on the next `sb marimo edit`.")
+        print("no running sandbox — lockfile updated; it syncs on the next `cwsb marimo edit`.")
         return
     print("  syncing sandbox venv...")
     remote.remote_sync(sb, proj)
@@ -154,7 +154,7 @@ def cmd_files_add(args) -> None:
     sb = remote.get_sandbox(proj, proj.load_state())
     dest = args.to.rstrip("/")
     if not dest.startswith(remote.MOUNT):
-        print(f"  warning: {dest} is outside {remote.MOUNT} — it will NOT survive `sb down`")
+        print(f"  warning: {dest} is outside {remote.MOUNT} — it will NOT survive `cwsb down`")
     remote.sh(sb, f"mkdir -p '{dest}'")
     for f in args.files:
         p = Path(f).expanduser()
@@ -165,7 +165,7 @@ def cmd_files_add(args) -> None:
             sys.exit(
                 f"{p.name} is {size_mb:.0f} MB — too big to stream from this machine.\n"
                 f"Download it on the sandbox at datacenter speed instead:\n"
-                f"  sb exec -- curl -L -o {dest}/{p.name} <url>"
+                f"  cwsb exec -- curl -L -o {dest}/{p.name} <url>"
             )
         sb.write_file(f"{dest}/{p.name}", p.read_bytes()).result()
         print(f"  ↑ {p.name} ({size_mb:.1f} MB) -> {dest}/{p.name}")
@@ -200,7 +200,7 @@ def cmd_status(args) -> None:
     state = proj.load_state()
     if not state.get("sandbox_id"):
         print(f"  no sandbox ({'snapshot ' + state['snapshot_id'] + ' ready to restore' if state.get('snapshot_id') else 'nothing yet'})")
-        print("  `sb marimo edit` to start one")
+        print("  `cwsb marimo edit` to start one")
         return
     sb = remote.get_sandbox(proj, state)
     print(f"  project:  {proj.root.name} (tag {proj.tag})")
@@ -223,7 +223,9 @@ def cmd_down(args) -> None:
     print("Pulling notebooks before anything destructive...")
     remote.pull_notebooks(sb, proj)
 
-    print("Snapshotting /work (venv + caches + notebooks + data)...")
+    size = (remote.sh(sb, "du -sh /work 2>/dev/null | cut -f1").stdout or "").strip() or "?"
+    print(f"Snapshotting /work — {size} (venv + caches + notebooks + data)...")
+    print("  snapshot time scales with size (~1 min at 7 GB, ~7 min at 24 GB) — not hung")
     snap_id, last_err = None, None
     for attempt in range(5):
         try:
@@ -234,7 +236,7 @@ def cmd_down(args) -> None:
             print(f"  snapshot attempt {attempt + 1}/5 failed: {e}; retrying in 60s")
             time.sleep(60)
     if snap_id is None:
-        sys.exit(f"Snapshot failed after 5 attempts ({last_err}). Sandbox left running — retry `sb down`.")
+        sys.exit(f"Snapshot failed after 5 attempts ({last_err}). Sandbox left running — retry `cwsb down`.")
     snap_id = getattr(snap_id, "snapshot_id", snap_id)
     print(f"  snapshot ready: {snap_id}")
 
@@ -251,7 +253,7 @@ def cmd_down(args) -> None:
             remote.unwrap(Sandbox.delete_snapshot(old_snap, missing_ok=True, auth=remote.auth(proj)))
         except Exception as e:
             print(f"  (could not delete old snapshot: {e} — delete manually later)")
-    print(f"Down. Next `sb marimo edit` restores from {snap_id}.")
+    print(f"Down. Next `cwsb marimo edit` restores from {snap_id}.")
 
 
 def cmd_cleanup(args) -> None:
@@ -276,7 +278,7 @@ def cmd_exec(args) -> None:
     proj = _project(args)
     cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd  # REMAINDER keeps the "--"
     if not cmd:
-        sys.exit("usage: sb exec -- <command...>")
+        sys.exit("usage: cwsb exec -- <command...>")
     sb = remote.get_sandbox(proj, proj.load_state())
     r = remote.sh(sb, " ".join(cmd))
     if r.stdout:
@@ -289,7 +291,7 @@ def cmd_exec(args) -> None:
 def main() -> None:
     remote.quiet_grpc_teardown_noise()
     ap = argparse.ArgumentParser(
-        prog="sb", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        prog="cwsb", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--project", help="project directory (default: walk up from cwd to pyproject.toml)")
     sub = ap.add_subparsers(dest="command", required=True)
@@ -304,8 +306,8 @@ def main() -> None:
 
     p = msub.add_parser("edit", help="ensure sandbox + marimo editor, open browser")
     p.add_argument("notebook", nargs="?", help="notebook to open (created if missing)")
-    p.add_argument("--gpu", action="store_true", help="force GPU (overrides [tool.sb])")
-    p.add_argument("--cpu", action="store_true", help="force CPU (overrides [tool.sb])")
+    p.add_argument("--gpu", action="store_true", help="force GPU (overrides [tool.cwsb])")
+    p.add_argument("--cpu", action="store_true", help="force CPU (overrides [tool.cwsb])")
     p.add_argument("--lifetime", default=None, help="hard cap if creating (e.g. 90m, 8h, 2d)")
     p.add_argument("--fresh", action="store_true", help="ignore saved snapshot when creating")
     p.add_argument("--no-browser", action="store_true", help="print the URL instead of opening it")

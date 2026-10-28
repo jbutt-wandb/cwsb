@@ -1,107 +1,151 @@
-# sb — marimo-native GPU notebooks on CoreWeave Sandboxes
+# cwsb — CoreWeave Sandbox marimo notebooks
 
-`sb marimo edit` and you're editing a notebook in your browser whose kernel runs
-on a GPU in a CoreWeave serverless sandbox. The sandbox is an implementation
-detail: `sb` creates, reuses, heals, snapshots, and reaps it for you.
+`cwsb marimo edit` opens a marimo notebook in your local browser whose kernel
+runs on a GPU inside a [CoreWeave Sandbox](https://docs.coreweave.com/products/sandboxes).
+The sandbox is an implementation detail: `cwsb` creates, reuses, heals,
+snapshots, and deletes it for you. Your project directory stays the source of
+truth — notebooks and the dependency lockfile are plain git-tracked files.
+
+This document is written to be sufficient on its own: a human or an AI agent
+should be able to install, operate, and troubleshoot `cwsb` from here without
+other context.
+
+---
+
+## Requirements
+
+| Requirement | Details |
+|---|---|
+| `uv` | <https://docs.astral.sh/uv/> — the only local dependency; `cwsb` runs no compute locally |
+| `CWSANDBOX_API_KEY` | Token with the **Sandbox User** IAM role from <https://console.coreweave.com/tokens>. Put it in the project's `.env` (auto-loaded, keep it gitignored) or export it |
+| GPU entitlement | GPU sandboxes are private preview, entitled **per CoreWeave organization**. Unentitled orgs fail at create in <2 s with a clear error (nothing billed) — contact your account team / forge-support@coreweave.com |
+| OS | macOS/Linux tested; sandbox side is always Linux x86_64 |
+
+## Install
 
 ```sh
-uv tool install git+<repo-url>        # once published; for now:
-uv tool install /Users/jbutt/Developer/sb
-
-mkdir my-notebooks && cd my-notebooks
-sb init                                # scaffold (add --vision for the VL stack)
-sb marimo edit                         # ~1 min first boot → browser opens on a GPU
-sb uv add "transformers>=5.21" polars  # libraries: git-tracked, live in seconds
-sb down                                # snapshot everything, stop billing
+uv tool install git+https://github.com/jbutt-wandb/cwsb
 ```
 
-## One-time setup
+The repo is **private** for now, so the installer needs GitHub credentials with
+access. If your git credential helper is already authenticated, the line above
+just works. Otherwise use a personal access token:
 
-- Put `CWSANDBOX_API_KEY` in `<project>/.env` (gitignored; auto-loaded). Create a
-  token with the **Sandbox User** role at <https://console.coreweave.com/tokens>.
-  GPU sandboxes are entitlement-gated per org — ask your CoreWeave contact or
-  forge-support@coreweave.com if creates are rejected.
-- Everything is **per-project** (nearest `pyproject.toml`, like uv): its own
-  environment (`pyproject.toml` + `uv.lock`), notebooks (`notebooks/*.py`),
-  sandbox lineage (`.sandbox-state.json`, gitignored), and sandbox tag — so
-  teammates and projects never collide.
+```sh
+uv tool install git+https://<YOUR_GITHUB_TOKEN>@github.com/jbutt-wandb/cwsb
+```
 
-## Commands
+⚠️ Never paste a real token into shared docs, shell histories you publish, or
+committed files. The clean long-term path is making the repo public or
+org-visible, after which the first form works for everyone.
 
-| Command | What it does |
-|---|---|
-| `sb init [--vision] [--cpu]` | Scaffold a sandbox-ready project in the cwd (pyproject with cu128 torch pins, notebooks/, .gitignore) + `uv lock` |
-| `sb marimo edit [nb.py] [--gpu\|--cpu] [--lifetime 8h] [--fresh] [--no-browser]` | Ensure sandbox (create/reuse/heal) + marimo editor, open the browser. Creates `nb.py` if missing |
-| `sb marimo new [nb.py]` | New notebook, opened in the editor |
-| `sb marimo run <nb.py> [--public]` | Serve a notebook as a read-only app (token-protected; `--public` disables auth, loudly). Shares the port with edit — switching modes restarts the server |
-| `sb marimo restart` | Restart the marimo server: fresh kernels, same URL/token |
-| `sb uv add\|remove <pkg…>` | Update `pyproject.toml`+`uv.lock` locally (nothing installs on your machine) and sync the sandbox venv — importable in running notebooks in seconds |
-| `sb uv sync` | Re-lock if `pyproject.toml` changed by hand + sync the sandbox |
-| `sb files add <path…> [--to /work/data]` | Upload files (≤500 MB each; bigger → `sb exec -- curl -L -o /work/data/f <url>` at datacenter speed) |
-| `sb files get <remote…> [--to .]` | Download files from the sandbox |
-| `sb push` / `sb pull` | Sync `notebooks/*.py` ↔ sandbox (`down` auto-pulls) |
-| `sb status` | State, mode, snapshot, URL + access token |
-| `sb down` | Pull notebooks → snapshot `/work` → delete sandbox (billing stops; old snapshot GC'd) |
-| `sb cleanup` | Delete ALL of this project's sandboxes, no snapshot (orphan/failed-create recovery) |
-| `sb exec -- <cmd>` | Shell on the sandbox with the venv/HF/LD_LIBRARY_PATH env |
+Upgrade later with `uv tool upgrade cwsb`; remove with `uv tool uninstall cwsb`.
 
-Global flag: `--project <dir>` to target a project from elsewhere.
+## Quickstart
 
-## Configuration — `[tool.sb]` in pyproject.toml
+```sh
+mkdir my-notebooks && cd my-notebooks
+echo 'CWSANDBOX_API_KEY=...' > .env     # or export it
+
+cwsb init                     # scaffold: pyproject (cu128 torch pins), notebooks/hello.py,
+                              # .gitignore, uv.lock. Add --vision for the VL/video stack.
+
+cwsb marimo edit              # creates a GPU sandbox (~1-2 min first boot), starts marimo,
+                              # prints the URL and opens your browser. Re-running reuses it.
+
+cwsb uv add polars            # lock locally + sync the sandbox venv (~seconds);
+                              # re-run the notebook cell and `import polars` works.
+
+cwsb files add data.csv       # upload → /work/data/data.csv  (read it by absolute path)
+
+cwsb down                     # pull notebooks home, snapshot /work, DELETE the sandbox.
+                              # Billing stops. Next `edit` restores everything in minutes.
+```
+
+## Command reference
+
+Every command is per-project: `cwsb` anchors to the nearest `pyproject.toml`
+at or above the current directory (like uv). Side effects are stated explicitly.
+
+| Command | What it does | Side effects |
+|---|---|---|
+| `cwsb init [--vision] [--cpu]` | Scaffold a sandbox-ready project in the cwd and run `uv lock`. `--vision` adds transformers/torchvision/torchcodec/av; `--cpu` makes a torch-free, cheaper preset | Writes `pyproject.toml`, `.gitignore`, `notebooks/hello.py`, `uv.lock`. Refuses if `pyproject.toml` exists (prints adoption steps instead) |
+| `cwsb marimo edit [nb.py] [--gpu\|--cpu] [--lifetime 8h] [--fresh] [--no-browser]` | Ensure a sandbox exists (create, restore snapshot, or reuse the running one), push `notebooks/*.py`, ensure marimo is serving, open the browser (deep-linked if `nb.py` given; file is created if missing) | **Creates a billed sandbox** if none is running (billing runs until `down`/`cleanup`/lifetime cap). `--fresh` ignores the saved snapshot. Push overwrites remote notebook copies with local ones |
+| `cwsb marimo new [nb.py]` | Create a new local notebook and open it | Same as `edit` |
+| `cwsb marimo run <nb.py> [--public]` | Serve a notebook as a read-only app. Token-protected by default; `--public` disables auth on an internet-reachable URL (prints a loud warning) | Restarts the marimo server (edit and run share one port); `edit` switches back |
+| `cwsb marimo restart` | Restart the marimo server: fresh kernels, same URL/token. Use after env changes or ghost errors | Running cells die; browser tabs prompt to reconnect |
+| `cwsb uv add\|remove <pkg…>` | Update `pyproject.toml` + `uv.lock` locally (nothing installs on your machine — GPU-only wheels are fine) and sync the sandbox venv | Edits pyproject/lock; packages importable in running notebooks in seconds. Works with no sandbox (syncs on next `edit`) |
+| `cwsb uv sync` | Re-lock if `pyproject.toml` was hand-edited, then sync the sandbox | Same |
+| `cwsb files add <path…> [--to /work/data]` | Upload files (≤500 MB each; creates the remote dir) | Overwrites same-named remote files. For bigger files download sandbox-side: `cwsb exec -- curl -L -o /work/data/f <url>` |
+| `cwsb files get <remote…> [--to .]` | Download files from the sandbox | Overwrites same-named local files |
+| `cwsb push` / `cwsb pull` | Sync `notebooks/*.py` local → sandbox / sandbox → local (top-level `.py` only) | Push favors local copies; pull skips unchanged files |
+| `cwsb status` | Project, sandbox state, mode, snapshot id, URL + access token | None (read-only) |
+| `cwsb down` | Pull notebooks → snapshot `/work` (prints size + ETA; retries flaky snapshot RPCs 5×) → delete the sandbox → GC the previous snapshot | **Stops billing.** The snapshot (paid storage) is the restore point for the next `edit` |
+| `cwsb cleanup` | Delete ALL sandboxes carrying this project's tag — no pull, no snapshot | **Destroys un-pulled/un-snapshotted work.** Recovery tool for wedged/failed creates and orphans |
+| `cwsb exec -- <cmd>` | Run a shell command on the sandbox with the full env (venv on PATH, HF_HOME, LD_LIBRARY_PATH) | Whatever the command does |
+| `--project <dir>` (global) | Anchor to an explicit project directory instead of walking up from cwd | — |
+
+## Configuration — `[tool.cwsb]` in pyproject.toml
 
 | Key | Default | Meaning |
 |---|---|---|
-| `gpu` | `true` | GPU sandbox (1× pool GPU: RTX PRO 6000 96 GB or H100 80 GB) vs CPU (cpu4/8Gi, ~5 s boot, much cheaper) |
-| `lifetime` | `"8h"` | Hard cap per sandbox (e.g. `90m`, `2d`, max 30 d). Cannot be extended — `sb down` before it hits |
-| `tag` | `sb-marimo-<dir>-<user>` | Sandbox tag; `cleanup` reaps only this tag. Set it to adopt an existing lineage |
+| `gpu` | `true` | Create GPU sandboxes (1× GPU — currently RTX PRO 6000 96 GB or H100 80 GB, the pool decides). `false` = CPU-only (much cheaper, ~5 s boot) |
+| `lifetime` | `"8h"` | Hard lifetime cap per sandbox (`90m`, `2d`, max 30 d). Fixed at creation, **cannot be extended** |
+| `tag` | `cwsb-marimo-<dir>-<user>` | Sandbox tag; `cleanup` reaps only this tag. Set explicitly to adopt an existing sandbox/snapshot lineage |
 | `port` | `2718` | marimo port behind the HTTPS endpoint |
-| `mount_size` | `"100Gi"` | `/work` snapshot mount size |
-| `apt_packages` | `[]` | Extra apt installs at bootstrap (ffmpeg is built in; apt lives outside snapshots, reinstalls each boot) |
+| `mount_size` | `"100Gi"` | Size of the `/work` snapshot mount |
 | `image` | `python:3.12-bookworm` | Container image (needs git/gcc/curl for ML stacks) |
+| `apt_packages` | `[]` | Extra apt installs at bootstrap (ffmpeg is always installed) |
 
-## Libraries — the rules that matter
+## Concepts — read before relying on this in anger
 
-- **`sb uv add` is the only install that sticks.** marimo's in-editor install
-  banner bypasses the lockfile; the next sync reverts it, and unpinned installs
-  can drag torch onto PyPI's CUDA-13 builds (this broke a real env once).
-- **The torch family must come from the `pytorch-cu128` index** — `sb init`
-  pre-pins torch/torchvision/torchaudio/torchcodec in `[tool.uv.sources]`. Add
-  any other torch-family lib (xformers, torchao, …) to that list **before**
-  `sb uv add`-ing it.
-- cu128-index versions can lag PyPI numbering (torchcodec is `0.11.x+cu128`,
-  matched to torch 2.11, vs `0.17` on PyPI) — loosen version floors accordingly.
-- Video decoding: `av` works out of the box; torchcodec additionally needs the
-  cu128 build + ffmpeg (bootstrap installs it) + the NVIDIA lib path (the env
-  block exports it) — all handled by `sb init --vision`.
+- **Project scoping.** `cwsb` walks up from your cwd to the nearest
+  `pyproject.toml`, exactly like uv. Running it inside an unrelated Python repo
+  anchors there — use `--project` or cd to the right root. State lives in
+  `<root>/.sandbox-state.json` (gitignored): sandbox id, snapshot id, session token.
+- **Persistence = `/work` + snapshots, nothing else.** Only the `/work` mount
+  survives: the venv, uv cache, `HF_HOME` (model weights), `/work/notebooks`,
+  `/work/data`. Anything outside `/work` — including apt packages — dies with
+  the sandbox (bootstrap reinstalls apt deps each boot). `cwsb down` takes the
+  snapshot; **lifetime-cap expiry does NOT** — it deletes the sandbox with no
+  pull and no snapshot, losing everything since your last `down`/`pull`.
+- **URL and token rotate every session.** Each created sandbox gets a fresh
+  internet-reachable HTTPS URL; marimo's access token is the only auth. Treat
+  the tokenized URL as a password. `cwsb status` reprints it.
+- **Billing** is per-millisecond from sandbox-ready until deletion, plus paid
+  storage for the snapshot between sessions. `cwsb down` when stepping away;
+  the lifetime cap is the backstop, not the habit.
+- **The cu128 index rule (torch family).** PyPI's default torch-family builds
+  are CUDA-13 and ABI-incompatible with this stack. `torch`, `torchvision`,
+  `torchaudio`, `torchcodec` must resolve from the `pytorch-cu128` index —
+  `cwsb init` pins all four in `[tool.uv.sources]`; add any other torch-family
+  lib (xformers, torchao, …) to that list **before** `cwsb uv add`-ing it.
+  Watch the version lag: the cu128 index numbers differently (e.g. torchcodec
+  is `0.11.x+cu128` there, matched to torch 2.11, while PyPI shows 0.17) —
+  loosen version floors accordingly.
+- **marimo's in-editor package installer is ephemeral.** It bypasses the
+  lockfile; the next sync reverts it, and an unpinned banner install can drag
+  torch onto an incompatible CUDA build. `cwsb uv add` is the only install
+  that sticks.
 
-## Persistence model
-
-Everything durable lives under **`/work`** (the snapshot mount): venv, uv cache,
-`HF_HOME=/work/hf` (model weights restore with the snapshot — no re-download),
-`/work/notebooks`, `/work/data`. Anything outside `/work` — including apt
-packages — dies with the sandbox (bootstrap reinstalls apt deps each boot).
-Notebooks are additionally plain git-friendly `.py` files in your repo.
-
-The public HTTPS URL + token **rotate on every create**; the endpoint does no
-auth itself (marimo's token is the gate) — treat the URL like a password.
-Billing is per-millisecond from ready until deletion: `sb down` when stepping away.
-
-## Troubleshooting (field-tested)
+## Troubleshooting (every entry field-tested)
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| "no capacity … retrying" / `RESOURCE_EXHAUSTED` | GPU pool at capacity | `sb` auto-retries ~20 min with backoff; persisting → later or forge-support@coreweave.com |
-| Stuck CREATING > 15 min, or status `failed` | Platform-side wedged/failed create (unbilled) | `sb cleanup` then `sb marimo edit` |
-| Notebook shows errors that don't match reality ("Reconnected" banner) | marimo resurrects cached session outputs; kernels go stale when the venv changes under them | `sb marimo restart` + hard-refresh; stubborn: `sb exec -- rm -rf /work/notebooks/__marimo__/session` first |
-| `ImportError: libcudnn.so.9` / missing nvidia libs after mixed installs | cu12/cu13 wheels share install dirs and clobber each other | `sb exec -- "cd /work/project && uv sync --locked --reinstall"` (seconds, from cache) |
-| torchcodec `Could not load this library` | cu128 build + ffmpeg + NVIDIA lib path all required | All baked in; from a bare shell use `sb exec` so the env block applies |
-| `uv sync` says `Removed virtual environment… Creating…` on restore | Image Python micro-version drift | Normal — reinstalls from `/work` cache in ~2 s |
-| gRPC `Channel is closed` traceback on exit | SDK async teardown noise | Filtered by `sb`; ignore any variant that leaks |
+| "no capacity … retrying" / `RESOURCE_EXHAUSTED` on create | GPU pool at capacity | `cwsb` auto-retries ~20 min with backoff; if it gives up, try later or forge-support@coreweave.com |
+| Sandbox stuck CREATING > 15 min, or status `failed` | Platform-side wedged/failed create (unbilled) | `cwsb cleanup`, then `cwsb marimo edit` — fresh creates usually land on a healthy runner |
+| Notebook shows errors that don't match reality ("Reconnected" banner; traceback cites code not on disk) | marimo resurrects cached session outputs; kernels also go stale when the venv changes under them | `cwsb marimo restart` + hard-refresh the page; stubborn ghosts: `cwsb exec -- rm -rf /work/notebooks/__marimo__/session` first |
+| `ImportError: libcudnn.so.9` or other missing nvidia libs after mixed installs | cu12/cu13 nvidia wheels share install dirs and clobber each other's files on uninstall | `cwsb exec -- "cd /work/project && uv sync --locked --reinstall"` (seconds, from warm cache) |
+| torchcodec `OSError: Could not load this library` | Needs the cu128 build + apt ffmpeg + NVIDIA lib path, all three | All baked in (`init` pins, bootstrap installs ffmpeg, env block exports the lib path). From a bare shell, run via `cwsb exec` so the env applies |
+| Snapshot phase of `down` takes minutes | Snapshot time scales with `/work` payload (torch stack + model weights add up) | Normal — `down` prints the size and an ETA (~1 min at 7 GB, ~7 min at 24 GB) |
+| `uv sync` log says `Removed virtual environment … Creating …` on a restored sandbox | Image Python micro-version drift invalidates the venv | Normal — reinstalls everything from the `/work` cache in ~2 s |
+| gRPC `UsageError: Channel is closed.` traceback after a command | SDK async teardown noise | Filtered by `cwsb`; ignore any variant that leaks |
+| uv warning about `VIRTUAL_ENV` not matching | An active venv vs. the project | Harmless; `cwsb` strips it for inner uv calls |
 
 ## Adopting an existing project
 
-`sb init` refuses to overwrite a `pyproject.toml`. To adopt: add a `[tool.sb]`
-section (set `tag` to your existing sandbox tag to keep its snapshot lineage —
-state-file keys are compatible), pin torch-family packages to the cu128 index
-(run `sb init` in an empty dir to copy the exact block), `uv lock`, then
-`sb marimo edit`.
+`cwsb init` refuses to overwrite a `pyproject.toml`. To adopt: add a
+`[tool.cwsb]` section (optional — defaults are fine; set `tag` to keep an
+existing sandbox/snapshot lineage), pin any torch-family deps to the
+`pytorch-cu128` index in `[tool.uv.sources]` (run `cwsb init` in an empty dir
+to copy the exact block), run `uv lock`, then `cwsb marimo edit`.
