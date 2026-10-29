@@ -1,6 +1,6 @@
 [project]
 name = "cwsb"
-version = "0.2.0"
+version = "0.3.0"
 description = "cwsb — CoreWeave Sandbox marimo notebooks: `cwsb marimo edit` and you're on a GPU."
 requires-python = ">=3.11"
 dependencies = ["cwsandbox>=1.19"]

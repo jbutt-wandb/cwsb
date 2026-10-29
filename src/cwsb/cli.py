@@ -141,8 +141,12 @@ def cmd_uv(args) -> None:
 
     state = proj.load_state()
     sb = remote.get_sandbox(proj, state, required=False)
-    if sb is None or not remote.sandbox_alive(sb):
-        print("no running sandbox — lockfile updated; it syncs on the next `cwsb marimo edit`.")
+    try:
+        alive = sb is not None and remote.sandbox_alive(sb)
+    except Exception:
+        alive = False  # can't reach it right now; lockfile is updated either way
+    if not alive:
+        print("no running sandbox reachable — lockfile updated; it syncs on the next `cwsb marimo edit`.")
         return
     print("  syncing sandbox venv...")
     remote.remote_sync(sb, proj)
@@ -202,7 +206,13 @@ def cmd_status(args) -> None:
         print(f"  no sandbox ({'snapshot ' + state['snapshot_id'] + ' ready to restore' if state.get('snapshot_id') else 'nothing yet'})")
         print("  `cwsb marimo edit` to start one")
         return
-    sb = remote.get_sandbox(proj, state)
+    sb = remote.get_sandbox(proj, state, required=False, tries=2, delay_s=5)
+    if sb is None:
+        sys.exit(
+            f"  could not reach the API to resolve sandbox {state['sandbox_id']} — "
+            "transient connection issue, try again in ~30s.\n"
+            "  (This does NOT mean the sandbox is gone; it may still be running and billing.)"
+        )
     print(f"  project:  {proj.root.name} (tag {proj.tag})")
     print(f"  sandbox:  {state['sandbox_id']}")
     print(f"  status:   {remote.unwrap(sb.get_status())}")
@@ -219,7 +229,17 @@ def cmd_down(args) -> None:
 
     proj = _project(args)
     state = proj.load_state()
-    sb = remote.get_sandbox(proj, state)
+    if not state.get("sandbox_id"):
+        sys.exit("No active sandbox for this project. Run `cwsb marimo edit` first.")
+    # Maximum stubbornness: bailing out of `down` on a transient blip leaves the
+    # sandbox running and billing — keep trying for up to 5 minutes.
+    sb = remote.get_sandbox(proj, state, required=False, patience_s=300)
+    if sb is None:
+        sys.exit(
+            f"Could not reach sandbox {state['sandbox_id']} after ~5 min of retries.\n"
+            "⚠️  It may STILL BE RUNNING AND BILLING — re-run `cwsb down` shortly, "
+            "or `cwsb status` to check."
+        )
     print("Pulling notebooks before anything destructive...")
     remote.pull_notebooks(sb, proj)
 
